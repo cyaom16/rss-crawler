@@ -226,9 +226,14 @@ class RSSCrawler(object):
                                 gmt_tp = feed.published_parsed
                             except AttributeError:
                                 print("-->No <published> found in {0} ({1})\n"
-                                      "-->use <updated>.".format(source, category))
-                                published.text = res.feed.updated
-                                gmt_tp = res.feed.updated_parsed
+                                      "-->try <updated>.".format(source, category))
+                                try:
+                                    published.text = res.feed.updated
+                                    gmt_tp = res.feed.updated_parsed
+                                except AttributeError:
+                                    print("-->No <updated> found in {0} ({1})\n"
+                                          "-->use system GMT...".format(source, category))
+                                    gmt_tp = time.gmtime()
 
                             # # UTC/GMT conversion %Y-%m-%d %T
                             # gmt_dt = str(parse(published.text).astimezone(to_zone)).split('+')[0]
@@ -267,7 +272,7 @@ class RSSCrawler(object):
 
                         try:
                             uid.text = feed.id
-                        except AttributeError as e:
+                        except AttributeError:
                             print("-->No <id> found in {0} ({1})\n"
                                   "-->use <link>...".format(source, category))
                             pass
@@ -297,7 +302,10 @@ class RSSCrawler(object):
                         except AttributeError:
                             print("-->No <published> found in {0} ({1})\n"
                                   "-->use <updated>.".format(source, category))
-                            published.text = res.feed.updated
+                            try:
+                                published.text = res.feed.updated
+                            except AttributeError:
+                                print("-->No <updated> found in {0} ({1})".format(source, category))
 
                     tree = ET.ElementTree(data)
                     num_update = len(res.entries)

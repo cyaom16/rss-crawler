@@ -25,58 +25,67 @@ class RSSCrawler(object):
 
         self.root_path = data_path
 
-        self.targets = {'reuters_us':       'https://www.reuters.com/tools/rss',
-                        'reuters_uk':       'https://uk.reuters.com/tools/rss',
-                        'reuters_in':       'https://in.reuters.com/tools/rss',
-                        'reuters_af':       'https://af.reuters.com/tools/rss',
-                        'associated_press': 'https://hosted2.ap.org/APDEFAULT/APNewsFeeds',
-                        'nytimes':          'https://www.nytimes.com/services/xml/rss/index.html',
-                        'finextra':         'https://www.finextra.com/rss/rss.aspx'}
+        self.targets = {'reuters_us': 'https://www.reuters.com/tools/rss',
+                        'reuters_uk': 'https://uk.reuters.com/tools/rss',
+                        'reuters_in': 'https://in.reuters.com/tools/rss',
+                        'reuters_af': 'https://af.reuters.com/tools/rss',
+                        # http://hosted2.ap.org/APDEFAULT/APNewsFeeds
+                        'associated_press': 'http://hosted2.ap.org/APDEFAULT/APNewsFeeds',
+                        'nytimes': 'https://www.nytimes.com/services/xml/rss/index.html',
+                        'finextra': 'https://www.finextra.com/rss/rss.aspx'}
 
         self.sources = {'https://thefintechtimes.com/feed/': ('fintechtimes', 'FinTech'),
                         'https://www.betakit.com/feed': ('betakit', 'FinTech'),
                         'https://fintechweekly.com/feed.rss': ('fintechweekly', 'FinTech'),
                         'https://feeds.feedburner.com/finovate?format=xml': ('finovate', 'FinTech'),
                         'https://techcrunch.com/tag/fintech/feed/': ('techcrunch', 'FinTech'),
-                        'https://news.google.com/news?cf=all&hl=en&pz=1&ned=us&q=fintech&output'
-                        '=rss': ('google_news', 'FinTech')}
+                        'https://news.google.com/news?cf=all&hl=en&pz=1&ned=us&q='
+                        'fintech&output''=rss': ('google_news', 'FinTech')}
+
         self.xml_list = []
 
     def extract_url(self, csv_path):
         """
-        Run only once in the first time
+            Web scrape RSS feeds URLs (run only once in the first time)
 
         """
         assert isinstance(csv_path, str)
+        seen = set()
+
+        if os.path.isfile(csv_path):
+            print("URL CSV already exits")
+            return self.load_url(csv_path)
 
         for source in self.targets:
-            r = requests.get(self.targets[source])
-            soup = BeautifulSoup(r.content, 'lxml')
+            try:
+                res = requests.get(self.targets[source])
+                assert res.status_code == 200
+            except AssertionError:
+                print("Cannot connect to {}, try again later".format(self.targets[source]))
+                continue
+            soup = BeautifulSoup(res.content, 'lxml')
 
-            target_group = None
+            groups = None
             has_str = True
-            has_class = False
+            has_cls = False
 
             if source == 'associated_press':
-                target_group = soup.find_all('div', 'rssmTblFrm', limit=1)
-                has_class = True
+                groups = soup.find_all('div', 'rssmTblFrm', limit=1)
+                has_cls = True
             elif source == 'nytimes':
-                target_group = soup.find_all('div', 'columnGroup doubleRule', limit=1)
+                groups = soup.find_all('div', 'columnGroup doubleRule', limit=1)
                 has_str = False
             elif source == 'finextra':
-                target_group = soup.find_all('table', limit=1)
+                groups = soup.find_all('table', limit=1)
             elif 'reuters' in source:
-                target_group = soup.find_all('div', 'module', limit=3)
-                target_group = target_group[1:]
+                groups = soup.find_all('div', 'module', limit=3)
+                groups = groups[1:]
 
-            for gp in target_group:
+            for gp in groups:
                 if source == 'finextra':
                     tags = gp.find_all('tr')
                 else:
-                    tags = gp.find_all('a',
-                                       attrs={'href': True, 'class': has_class},
-                                       string=has_str)
-
+                    tags = gp.find_all('a', attrs={'href': True, 'class': has_cls}, string=has_str)
                 if tags:
                     for t in tags:
                         if source == 'finextra':
@@ -85,7 +94,7 @@ class RSSCrawler(object):
                             link = td[1].find('a').get('href')
                         else:
                             s = t.get_text().replace('\n', '').replace('/', '')
-                            category = s.replace("'", '').replace('"', '')
+                            category = s.replace("'", '').replace('"', '').strip()
                             link = t.get('href')
                         # Update URL dictionary
                         self.sources[link] = (source, category)
@@ -99,7 +108,9 @@ class RSSCrawler(object):
                     writer.writerow({'URL': url,
                                      'Source': self.sources[url][0],
                                      'Category': self.sources[url][1]})
-        return self.sources
+
+        print("Found {} URls".format(len(self.sources)))
+        return
 
     def load_url(self, csv_path):
         """
@@ -112,33 +123,37 @@ class RSSCrawler(object):
                 reader = csv.DictReader(f)
                 for row in reader:
                     self.sources[row['URL']] = (row['Source'], row['Category'])
-            return self.sources
+            print("Total {} URLs".format(len(self.sources)))
         else:
             print("-->CSV path invalid!")
 
     def load_xml(self):
         self.xml_list = [os.path.join(root, f)
                          for root, _, files in os.walk(self.root_path)
-                         for f in files if f.endswith('.xml')]
+                         for f in files
+                         if f.endswith('.xml')]
         return self.xml_list
 
-    def scrape(self, timeout, to_db=True):
+    def run(self, timeout, to_db=True):
+        """
+            Scraper (input timeout in days)
+        """
         # timeout = float(input("Please enter timeout period (day): "))
-        timeout = float(timeout) * 60 * 24
-        time_start = time.localtime()
-        time_end = time.mktime(time_start) + timeout * 60
-        asc_time_end = time.asctime(time.localtime(time_end))
-        print("\nStarted at:", time.asctime(time_start))
-        print("Running for: {} min".format(timeout))
-        print("Terminated at:", asc_time_end)
+        timeout = float(timeout) * 3600 * 24
+        time_start = time.time()
+        time_end = time_start + timeout
+        asctime_end = time.asctime(time.localtime(time_end))
+        print("\nStarted at:", time.asctime(time.localtime(time_start)))
+        print("Running for: {} min".format(timeout / 60))
+        print("Terminated at:", asctime_end)
 
         # UTC/GMT conversion
         # to_zone = tz.tzutc()
 
         while time.time() < time_end:
             time_left = (time_end - time.time()) / 60
-            print("\nStarting scraper,"
-                  "time remaining: {:.1f} min ({:.1f} hrs).".format(time_left, time_left / 60))
+            print("\nStarting scraper, time remaining: {:.1f} min ({:.1f} hrs)"
+                  .format(time_left, time_left / 60))
             if to_db:
                 try:
                     print("Connecting to database...")
@@ -156,19 +171,20 @@ class RSSCrawler(object):
             for url in self.sources:
                 num_update = 0
 
+                # Unpack sources dictionary entry
                 source, category = self.sources[url]
                 # print(category, src)
                 try:
                     # print("Connecting to {} ({})".format(src, category))
-                    r = requests.get(url)
-                    assert r.status_code == 200
-                except AssertionError:
-                    print("-->Failed to connect to {0} ({1})\n"
-                          "-->try again later...".format(source, category))
+                    response = requests.get(url)
+                    # assert response.status_code == 200
+                except Exception:
+                    print("-->Failed to connect to {0} ({1}), try again later"
+                          .format(source, category))
                     time.sleep(5)
                     continue
 
-                content = r.content
+                content = response.content
                 # Remove leading newlines in the BetaKit XML feed
                 if source == 'betakit':
                     content = content.decode('utf-8').replace('\n', '')
@@ -182,23 +198,27 @@ class RSSCrawler(object):
                     data = tree.getroot()
 
                     # Retrieve the current sets of UIDs, titles in the XML file
-                    id_set = set(map(lambda i: i.text, data.iter('uid')))
+                    uid_set = set(map(lambda i: i.text, data.iter('uid')))
                     title_set = set(map(lambda t: t.text, data.iter('title')))
+
                     for feed in res.entries:
-                        # Some feed doesn't have id key, we use link instead
+                        # Some feed doesn't have ID key, we use link instead
                         try:
-                            fd_id = feed.id
+                            feed_id = feed.id
                         except AttributeError:
-                            print("-->No <id> found in {0} ({1})\n"
-                                  "-->try <link>...".format(source, category))
+                            print("-->No <id> in {0} ({1}), try <link>".format(source, category))
                             try:
-                                fd_id = feed.link
+                                feed_id = feed.link
                             except AttributeError:
-                                print("-->No <link> found in {0} ({1})\n"
-                                      "-->ignore...".format(source, category))
+                                print("-->No <link> in {0} ({1}), ignore".format(source, category))
                                 continue
-                        fd_title = feed.title.encode('ascii', 'ignore').decode('utf-8')
-                        if fd_id not in id_set and fd_title not in title_set:
+                        try:
+                            feed_title = feed.title.encode('ascii', 'ignore').decode('utf-8')
+                        except AttributeError:
+                            print("-->No <title> in {0} ({1}), ignore".format(source, category))
+                            continue
+
+                        if feed_id not in uid_set and feed_title not in title_set:
                             entry = ET.SubElement(data, 'entry')
                             uid = ET.SubElement(entry, 'uid')
                             title = ET.SubElement(entry, 'title')
@@ -206,17 +226,23 @@ class RSSCrawler(object):
                             summary = ET.SubElement(entry, 'summary')
                             published = ET.SubElement(entry, 'published_date')
 
-                            uid.text = fd_id
-                            title.text = fd_title
+                            uid.text = feed_id
+                            title.text = feed_title
                             link.text = feed.link
-                            s = feed.summary
+
+                            try:
+                                s = feed.summary
+                            except AttributeError:
+                                print("-->No <summary> in {0} ({1}), ignore"
+                                      .format(category, source))
+                                s = None
                             if s is None:
-                                print("-->Empty <summary> found at UID: {0}, in {1} ({2})\n"
-                                      "-->try <content>.".format(fd_id, source, category))
+                                print("-->Empty <summary> at UID: {0} in {1} ({2}), try <content>"
+                                      .format(feed_id, source, category))
                                 try:
                                     s = feed.content[0].value
                                 except AttributeError:
-                                    print("-->No <content>.")
+                                    print("-->No <content>")
                             # Remove HTML markup and non-ascii chars in summary
                             s = BeautifulSoup(s, 'lxml').get_text()
                             summary.text = s.encode('ascii', 'ignore').decode('utf-8')
@@ -225,17 +251,17 @@ class RSSCrawler(object):
                                 published.text = feed.published
                                 gmt_tp = feed.published_parsed
                             except AttributeError:
-                                print("-->No <published> found in {0} ({1})\n"
-                                      "-->try <updated>.".format(source, category))
+                                print("-->No <published> in {0} ({1}), try <updated>"
+                                      .format(source, category))
                                 try:
                                     published.text = res.feed.updated
                                     gmt_tp = res.feed.updated_parsed
                                 except AttributeError:
-                                    print("-->No <updated> found in {0} ({1})\n"
-                                          "-->use system GMT...".format(source, category))
+                                    print("-->No <updated> in {0} ({1}), use system GMT"
+                                          .format(source, category))
                                     gmt_tp = time.gmtime()
-
-                            # # UTC/GMT conversion %Y-%m-%d %T
+                                    published.text = time.asctime(gmt_tp)
+                            # UTC/GMT conversion %Y-%m-%d %T
                             # gmt_dt = str(parse(published.text).astimezone(to_zone)).split('+')[0]
                             gmt_dt = time.strftime('%Y-%m-%d %H:%M:%S', gmt_tp) if gmt_tp else ''
 
@@ -257,58 +283,72 @@ class RSSCrawler(object):
                             num_update += 1
 
                     if num_update:
-                        print("Found {0} update in {1} ({2}).".format(num_update, source, category))
+                        print("Found {0} update in {1} ({2})".format(num_update, source, category))
                         tree.write(xml_path)
                         time.sleep(0.5)
                 else:
-                    print("Creating a new XML file...")
+                    print("Creating a new XML file")
+                    # os.makedirs(os.path.join(self.root_path, source))
+
                     data = ET.Element('data')
                     for feed in res.entries:
                         entry = ET.SubElement(data, 'entry')
                         uid = ET.SubElement(entry, 'uid')
                         title = ET.SubElement(entry, 'title')
                         link = ET.SubElement(entry, 'link')
+                        summary = ET.SubElement(entry, 'summary')
                         published = ET.SubElement(entry, 'published_date')
 
                         try:
                             uid.text = feed.id
                         except AttributeError:
-                            print("-->No <id> found in {0} ({1})\n"
-                                  "-->use <link>...".format(source, category))
-                            pass
+                            print("-->No <id> in {0} ({1}), try <link>".format(source, category))
+                            try:
+                                uid.text = feed.link
+                            except AttributeError:
+                                print("-->No <link> in {0} ({1}), ignore".format(source, category))
+                                continue
                         try:
-                            uid.text = feed.link
+                            title.text = feed.title.encode('ascii', 'ignore').decode('utf-8')
                         except AttributeError:
-                            print("-->No <link> found in {0} ({1})\n"
-                                  "-->ignore...".format(source, category))
+                            print("-->No <title> in {0} ({1}), ignore".format(source, category))
                             continue
 
-                        title.text = feed.title.encode('ascii', 'ignore').decode('utf-8')
                         link.text = feed.link
-                        summary = ET.SubElement(entry, 'summary')
-                        s = feed.summary
+
+                        try:
+                            s = feed.summary
+                        except AttributeError:
+                            print("-->No <summary> in {0} ({1}), ignore"
+                                  .format(category, source))
+                            s = None
                         if s is None:
-                            print("-->Empty <summary> found at UID: {0}, in {1} ({2})\n"
-                                  "-->try <content>.".format(uid.text, source, category))
+                            print("-->Empty <summary> at UID: {0}, in {1} ({2}), try <content>"
+                                  .format(uid.text, source, category))
                             try:
                                 s = feed.content[0].value
                             except AttributeError:
-                                print("-->No <content>.")
+                                print("-->No <content>")
                         # Remove HTML markup in the summary
                         s = BeautifulSoup(s, 'lxml').get_text()
                         summary.text = s.encode('ascii', 'ignore').decode('utf-8')
+
                         try:
                             published.text = feed.published
                         except AttributeError:
-                            print("-->No <published> found in {0} ({1})\n"
-                                  "-->use <updated>.".format(source, category))
+                            print("-->No <published> in {0} ({1}), try <updated>"
+                                  .format(source, category))
                             try:
                                 published.text = res.feed.updated
                             except AttributeError:
-                                print("-->No <updated> found in {0} ({1})".format(source, category))
+                                print("-->No <updated> in {0} ({1}), use system GMT"
+                                      .format(source, category))
+                                published.text = time.asctime(time.gmtime())
+
+                        num_update += 1
 
                     tree = ET.ElementTree(data)
-                    num_update = len(res.entries)
+                    # num_update = len(res.entries)
 
                     tree.write(xml_path)
                     time.sleep(0.5)
@@ -321,12 +361,13 @@ class RSSCrawler(object):
                         except Exception as e:
                             print("Error {}".format(e.args[1]))
 
-                    print("Found {0} update in {1} ({2}).".format(num_update, source, category))
+                    print("Found {0} update in {1} ({2})".format(num_update, source, category))
 
-            cursor.close()
-            cnx.close()
+            if to_db:
+                cursor.close()
+                cnx.close()
 
-            print("Now:", time.asctime(time.localtime(time.time())))
-            print("Terminated at:", asc_time_end)
-            print("Waiting for 5 min...\n")
+            print("Now:", time.asctime(time.localtime()))
+            print("Terminating at:", asctime_end)
+            print("Waiting for 5 min\n")
             time.sleep(300)

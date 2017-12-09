@@ -18,21 +18,22 @@ from bs4 import BeautifulSoup
 
 class RSSCrawler(object):
     def __init__(self, data_path):
-        """
+        """ RSS feed crawler
 
+        Arguments
+            data_path: Path of XML data directory
         """
         assert isinstance(data_path, str)
 
         self.root_path = data_path
 
-        self.targets = {'reuters_us': 'https://www.reuters.com/tools/rss',
-                        'reuters_uk': 'https://uk.reuters.com/tools/rss',
-                        'reuters_in': 'https://in.reuters.com/tools/rss',
-                        'reuters_af': 'https://af.reuters.com/tools/rss',
-                        # http://hosted2.ap.org/APDEFAULT/APNewsFeeds
+        self.targets = {'reuters_us':       'https://www.reuters.com/tools/rss',
+                        'reuters_uk':       'https://uk.reuters.com/tools/rss',
+                        'reuters_in':       'https://in.reuters.com/tools/rss',
+                        'reuters_af':       'https://af.reuters.com/tools/rss',
                         'associated_press': 'http://hosted2.ap.org/APDEFAULT/APNewsFeeds',
-                        'nytimes': 'https://www.nytimes.com/services/xml/rss/index.html',
-                        'finextra': 'https://www.finextra.com/rss/rss.aspx'}
+                        'nytimes':          'https://www.nytimes.com/services/xml/rss/index.html',
+                        'finextra':         'https://www.finextra.com/rss/rss.aspx'}
 
         self.sources = {'https://thefintechtimes.com/feed/': ('fintechtimes', 'FinTech'),
                         'https://www.betakit.com/feed': ('betakit', 'FinTech'),
@@ -45,12 +46,12 @@ class RSSCrawler(object):
         self.xml_list = []
 
     def extract_url(self, csv_path):
-        """
-            Web scrape RSS feeds URLs (run only once in the first time)
+        """ Web scrape RSS feeds URLs and save to CSV (run only once in the first time)
 
+        Arguments
+            csv_path: Path of the CSV stored the feed URLs
         """
         assert isinstance(csv_path, str)
-        seen = set()
 
         if os.path.isfile(csv_path):
             print("URL CSV already exits")
@@ -113,8 +114,10 @@ class RSSCrawler(object):
         return
 
     def load_url(self, csv_path):
-        """
+        """ Load feed URLs from CSV
 
+        Arguments
+            csv_path: Path of the CSV stored the feed URLs
         """
         assert isinstance(csv_path, str)
 
@@ -135,8 +138,11 @@ class RSSCrawler(object):
         return self.xml_list
 
     def run(self, timeout, to_db=True):
-        """
-            Scraper (input timeout in days)
+        """ Scraper
+
+        Arguments
+            timeout: Running period
+            to_db:   Load to database
         """
         # timeout = float(input("Please enter timeout period (day): "))
         timeout = float(timeout) * 3600 * 24
@@ -147,12 +153,9 @@ class RSSCrawler(object):
         print("Running for: {} min".format(timeout / 60))
         print("Terminated at:", asctime_end)
 
-        # UTC/GMT conversion
-        # to_zone = tz.tzutc()
-
         while time.time() < time_end:
             time_left = (time_end - time.time()) / 60
-            print("\nStarting scraper, time remaining: {:.1f} min ({:.1f} hrs)"
+            print("\nStarting crawler, time remaining: {:.1f} min ({:.1f} hrs)"
                   .format(time_left, time_left / 60))
             if to_db:
                 try:
@@ -170,7 +173,6 @@ class RSSCrawler(object):
 
             for url in self.sources:
                 num_update = 0
-
                 # Unpack sources dictionary entry
                 source, category = self.sources[url]
                 # print(category, src)
@@ -288,7 +290,6 @@ class RSSCrawler(object):
                         time.sleep(0.5)
                 else:
                     print("Creating a new XML file")
-                    # os.makedirs(os.path.join(self.root_path, source))
 
                     data = ET.Element('data')
                     for feed in res.entries:
@@ -352,6 +353,7 @@ class RSSCrawler(object):
 
                     tree.write(xml_path)
                     time.sleep(0.5)
+
                     if to_db:
                         try:
                             query = ("LOAD XML LOCAL INFILE '" + xml_path + "' INTO TABLE rss_feeds"

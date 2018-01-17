@@ -245,6 +245,7 @@ class RSSCrawler(object):
                                     s = feed.content[0].value
                                 except AttributeError:
                                     print("-->No <content>")
+                                    continue
                             # Remove HTML markup and non-ascii chars in summary
                             s = BeautifulSoup(s, 'lxml').get_text()
                             summary.text = s.encode('ascii', 'ignore').decode('utf-8')
@@ -330,6 +331,7 @@ class RSSCrawler(object):
                                 s = feed.content[0].value
                             except AttributeError:
                                 print("-->No <content>")
+                                continue
                         # Remove HTML markup in the summary
                         s = BeautifulSoup(s, 'lxml').get_text()
                         summary.text = s.encode('ascii', 'ignore').decode('utf-8')
